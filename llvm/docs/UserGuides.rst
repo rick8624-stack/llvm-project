@@ -70,6 +70,7 @@ intermediate LLVM representation.
    RemoveDIsDebugInfo
    RISCVUsage
    RISCV/RISCVVectorExtension
+   RISCV/CodeAnalysisAgentVectorizationSpec
    SourceLevelDebugging
    SPIRVUsage
    SandboxIR
@@ -308,6 +309,9 @@ Additional Topics
 
 :doc:`RISCV/RISCVVectorExtension`
    This document describes how the RISC-V Vector extension can be expressed in LLVM IR and how code is generated for it in the backend.
+
+:doc:`RISCV/CodeAnalysisAgentVectorizationSpec`
+   This document specifies an agent for analyzing code to identify vectorization opportunities for RISC-V Vector Extension.
 
 :doc:`Sandbox IR <SandboxIR>`
    This document describes the design and usage of Sandbox IR, a transactional layer over LLVM IR.
