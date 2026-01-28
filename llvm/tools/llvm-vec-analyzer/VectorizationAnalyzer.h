@@ -16,6 +16,9 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include <memory>
@@ -23,12 +26,6 @@
 #include <vector>
 
 namespace llvm {
-
-class Loop;
-class LoopInfo;
-class ScalarEvolution;
-class DominatorTree;
-class TargetTransformInfo;
 
 /// Represents a vectorization opportunity
 struct VectorizationOpportunity {

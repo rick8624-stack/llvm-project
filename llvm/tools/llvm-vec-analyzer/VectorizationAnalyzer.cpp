@@ -7,8 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "VectorizationAnalyzer.h"
+#include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instructions.h"
@@ -16,6 +18,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/Triple.h"
 #include <map>
 
 using namespace llvm;
@@ -60,9 +63,12 @@ void VectorizationAnalyzer::analyzeFunction(Function &F) {
   auto &LI = FunctionLoops[&F];
   LI = std::make_unique<LoopInfo>(*DT);
 
-  // Build scalar evolution
+  // Build scalar evolution - requires TargetLibraryInfo and AssumptionCache
   auto &SE = FunctionSCEV[&F];
-  SE = std::make_unique<ScalarEvolution>(F, *DT, *LI);
+  TargetLibraryInfoImpl TLII(Triple(F.getParent()->getTargetTriple()));
+  TargetLibraryInfo TLI(TLII, &F);
+  AssumptionCache AC(F);
+  SE = std::make_unique<ScalarEvolution>(F, TLI, AC, *DT, *LI);
 
   // Analyze each loop
   for (Loop *L : LI->getLoopsInPreorder()) {
@@ -74,19 +80,25 @@ void VectorizationAnalyzer::analyzeFunction(Function &F) {
 
 void VectorizationAnalyzer::analyzeLoop(Function &F, Loop *L, LoopInfo &LI,
                                         ScalarEvolution &SE) {
+  // Get the dominator tree for this function
+  DominatorTree *DT = nullptr;
+  auto it = FunctionDT.find(&F);
+  if (it != FunctionDT.end()) {
+    DT = it->second.get();
+  }
+
   // Check if loop is vectorizable
   BasicBlock *Header = L->getHeader();
   if (!Header)
     return;
 
   // Check for simple loop structure
-  bool isSimple = L->isLoopSimplifyForm() && L->isLCSSAForm(*LI.getBase());
+  bool isSimple = L->isLoopSimplifyForm() && (DT ? L->isLCSSAForm(*DT) : false);
 
   if (isSimple) {
     VectorizationOpportunity Opp(VectorizationOpportunity::SimpleLoop, &F, L);
     Opp.Description = "Simple loop structure suitable for vectorization";
     Opp.ConfidenceScore = 0.8;
-
     // Check trip count
     if (SE.hasLoopInvariantBackedgeTakenCount(L)) {
       Opp.Reasons.push_back("Loop has invariant trip count");
@@ -230,8 +242,8 @@ bool VectorizationAnalyzer::generateReports() {
   EnglishOS.close();
 
   // Generate Chinese report if enabled
+  std::string ChinesePath = OutputDir + "/analysis_report_zh.txt";
   if (EnableChinese) {
-    std::string ChinesePath = OutputDir + "/analysis_report_zh.txt";
     raw_fd_ostream ChineseOS(ChinesePath, EC, sys::fs::OF_Text);
     if (EC) {
       errs() << "Error opening Chinese report file: " << EC.message() << "\n";
