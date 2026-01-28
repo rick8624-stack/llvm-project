@@ -1,6 +1,6 @@
-=========================================================
+===================================================
 Code Analysis Agent for Vectorization Opportunities
-=========================================================
+===================================================
 
 .. contents::
    :local:
@@ -71,7 +71,7 @@ Outputs
 The agent produces structured analysis results:
 
 Vectorization Candidates
--------------------------
+------------------------
 
 A list of code regions identified as vectorization opportunities, including:
 
@@ -82,7 +82,7 @@ A list of code regions identified as vectorization opportunities, including:
 * **Confidence score**: Likelihood of successful vectorization (0.0-1.0)
 
 Dependency Analysis Reports
-----------------------------
+---------------------------
 
 For each candidate region:
 
@@ -100,7 +100,7 @@ Vectorization Assessment
 * **Constraints**: Alignment requirements, trip count assumptions
 
 Non-Vectorizable Regions
--------------------------
+------------------------
 
 For regions that cannot be vectorized:
 
@@ -248,7 +248,7 @@ Interaction Points
 The Code Analysis Agent integrates with other components:
 
 Code Transformation Agent
---------------------------
+-------------------------
 
 * **Provides**: Prioritized list of vectorization candidates
 * **Receives**: Transformation success/failure feedback
@@ -292,7 +292,7 @@ Performance Analysis Agent
 * Vectorization factor achieved
 
 Compilation Pipeline Integration
----------------------------------
+--------------------------------
 
 The agent fits into the LLVM optimization pipeline:
 
@@ -368,10 +368,10 @@ This specification acknowledges the following limitations:
 * Microarchitecture details may not be fully captured
 
 Example Analysis Scenarios
-===========================
+==========================
 
 Scenario 1: Simple Loop - High Confidence
-------------------------------------------
+-----------------------------------------
 
 **Input Code**::
 
@@ -392,7 +392,7 @@ Scenario 1: Simple Loop - High Confidence
 * **Blockers**: None
 
 Scenario 2: Loop with Reduction - Medium Confidence
-----------------------------------------------------
+---------------------------------------------------
 
 **Input Code**::
 
@@ -415,7 +415,7 @@ Scenario 2: Loop with Reduction - Medium Confidence
 * **Blockers**: None (RVV supports vector reductions)
 
 Scenario 3: Conditional Loop - Low Confidence
-----------------------------------------------
+---------------------------------------------
 
 **Input Code**::
 
@@ -439,7 +439,7 @@ Scenario 3: Conditional Loop - Low Confidence
 * **Notes**: Efficiency depends on mask density
 
 Scenario 4: Non-Vectorizable Loop
-----------------------------------
+---------------------------------
 
 **Input Code**::
 
