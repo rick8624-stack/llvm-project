@@ -10,11 +10,13 @@
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
@@ -63,12 +65,17 @@ void VectorizationAnalyzer::analyzeFunction(Function &F) {
   auto &LI = FunctionLoops[&F];
   LI = std::make_unique<LoopInfo>(*DT);
 
-  // Build scalar evolution - requires TargetLibraryInfo and AssumptionCache
-  auto &SE = FunctionSCEV[&F];
+  // Build target library info and assumption cache with proper lifetime
+  auto &TLI = FunctionTLI[&F];
   TargetLibraryInfoImpl TLII(Triple(F.getParent()->getTargetTriple()));
-  TargetLibraryInfo TLI(TLII, &F);
-  AssumptionCache AC(F);
-  SE = std::make_unique<ScalarEvolution>(F, TLI, AC, *DT, *LI);
+  TLI = std::make_unique<TargetLibraryInfo>(TLII, &F);
+  
+  auto &AC = FunctionAC[&F];
+  AC = std::make_unique<AssumptionCache>(F);
+
+  // Build scalar evolution
+  auto &SE = FunctionSCEV[&F];
+  SE = std::make_unique<ScalarEvolution>(F, *TLI, *AC, *DT, *LI);
 
   // Analyze each loop
   for (Loop *L : LI->getLoopsInPreorder()) {
@@ -121,23 +128,26 @@ void VectorizationAnalyzer::analyzeLoop(Function &F, Loop *L, LoopInfo &LI,
     Opportunities.push_back(Opp);
   }
 
-  // Check for regular memory access patterns
-  bool hasRegularMemAccess = false;
+  // Check for regular memory access patterns (only once per loop)
+  bool hasMemoryOps = false;
   for (BasicBlock *BB : L->blocks()) {
     for (Instruction &I : *BB) {
       if (isa<LoadInst>(I) || isa<StoreInst>(I)) {
-        hasRegularMemAccess = true;
-        VectorizationOpportunity Opp(VectorizationOpportunity::MemoryAccess,
-                                     &F, L);
-        Opp.Description = "Regular memory access pattern detected";
-        Opp.ConfidenceScore = 0.7;
-        Opp.Reasons.push_back("Memory operations can benefit from vector loads/stores");
-        Opportunities.push_back(Opp);
+        hasMemoryOps = true;
         break;
       }
     }
-    if (hasRegularMemAccess)
+    if (hasMemoryOps)
       break;
+  }
+  
+  if (hasMemoryOps) {
+    VectorizationOpportunity Opp(VectorizationOpportunity::MemoryAccess,
+                                 &F, L);
+    Opp.Description = "Regular memory access pattern detected";
+    Opp.ConfidenceScore = 0.7;
+    Opp.Reasons.push_back("Memory operations can benefit from vector loads/stores");
+    Opportunities.push_back(Opp);
   }
 }
 
@@ -153,42 +163,60 @@ void VectorizationAnalyzer::checkDependencies(Function &F, Loop *L,
     Issues.push_back(Issue);
   }
 
-  // Check for function calls
+  // Check for function calls (only report once per loop)
+  bool hasFunctionCall = false;
   for (BasicBlock *BB : L->blocks()) {
     for (Instruction &I : *BB) {
       if (auto *CI = dyn_cast<CallInst>(&I)) {
         Function *Callee = CI->getCalledFunction();
         if (!Callee || !Callee->isIntrinsic()) {
-          DependencyIssue Issue(DependencyIssue::CallToUnknownFunction, &F, L);
-          Issue.Description = "Loop contains function call";
-          Issue.Details.push_back("Vectorization may require function cloning or inlining");
-          Issues.push_back(Issue);
+          hasFunctionCall = true;
           break;
         }
       }
     }
+    if (hasFunctionCall)
+      break;
+  }
+  
+  if (hasFunctionCall) {
+    DependencyIssue Issue(DependencyIssue::CallToUnknownFunction, &F, L);
+    Issue.Description = "Loop contains function call";
+    Issue.Details.push_back("Vectorization may require function cloning or inlining");
+    Issues.push_back(Issue);
   }
 }
 
 void VectorizationAnalyzer::recognizePatterns(Function &F, Loop *L,
                                               ScalarEvolution &SE) {
-  // Look for reduction patterns
+  // Look for reduction patterns - check for proper reduction operations
+  bool foundReduction = false;
   for (BasicBlock *BB : L->blocks()) {
     for (Instruction &I : *BB) {
       if (auto *Phi = dyn_cast<PHINode>(&I)) {
         // Check if this is a reduction variable
-        bool isReduction = false;
         for (unsigned i = 0; i < Phi->getNumIncomingValues(); ++i) {
           Value *Inc = Phi->getIncomingValue(i);
           if (auto *BinOp = dyn_cast<BinaryOperator>(Inc)) {
-            if (BinOp->getOperand(0) == Phi || BinOp->getOperand(1) == Phi) {
-              isReduction = true;
+            // Check if this is an associative and commutative operation
+            unsigned Opcode = BinOp->getOpcode();
+            bool isReductionOp = (Opcode == Instruction::Add ||
+                                   Opcode == Instruction::FAdd ||
+                                   Opcode == Instruction::Mul ||
+                                   Opcode == Instruction::FMul ||
+                                   Opcode == Instruction::And ||
+                                   Opcode == Instruction::Or ||
+                                   Opcode == Instruction::Xor);
+            
+            if (isReductionOp && 
+                (BinOp->getOperand(0) == Phi || BinOp->getOperand(1) == Phi)) {
+              foundReduction = true;
               break;
             }
           }
         }
-
-        if (isReduction) {
+        
+        if (foundReduction) {
           VectorizationOpportunity Opp(VectorizationOpportunity::Reduction,
                                        &F, L);
           Opp.Description = "Reduction pattern detected";
@@ -200,15 +228,18 @@ void VectorizationAnalyzer::recognizePatterns(Function &F, Loop *L,
         }
       }
     }
+    if (foundReduction)
+      break;
   }
 
-  // Look for induction variables
+  // Look for induction variables - check for AddRec SCEV expressions
   for (BasicBlock *BB : L->blocks()) {
     for (Instruction &I : *BB) {
       if (auto *Phi = dyn_cast<PHINode>(&I)) {
         if (SE.isSCEVable(Phi->getType())) {
           const SCEV *S = SE.getSCEV(Phi);
-          if (SE.isLoopInvariant(S, L)) {
+          // Induction variables have AddRec SCEV expressions
+          if (isa<SCEVAddRecExpr>(S)) {
             VectorizationOpportunity Opp(
                 VectorizationOpportunity::InductionVariable, &F, L);
             Opp.Description = "Induction variable pattern";
@@ -549,7 +580,7 @@ std::string VectorizationAnalyzer::getOpportunityKindName(
   case VectorizationOpportunity::MemoryAccess:
     return "MemoryAccess";
   }
-  return "Unknown";
+  llvm_unreachable("Unknown opportunity kind");
 }
 
 std::string
@@ -568,5 +599,5 @@ VectorizationAnalyzer::getIssueKindName(DependencyIssue::IssueKind K) {
   case DependencyIssue::CallToUnknownFunction:
     return "CallToUnknownFunction";
   }
-  return "Unknown";
+  llvm_unreachable("Unknown issue kind");
 }

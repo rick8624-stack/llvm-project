@@ -16,8 +16,10 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
@@ -99,6 +101,8 @@ private:
   DenseMap<Function *, std::unique_ptr<LoopInfo>> FunctionLoops;
   DenseMap<Function *, std::unique_ptr<ScalarEvolution>> FunctionSCEV;
   DenseMap<Function *, std::unique_ptr<DominatorTree>> FunctionDT;
+  DenseMap<Function *, std::unique_ptr<TargetLibraryInfo>> FunctionTLI;
+  DenseMap<Function *, std::unique_ptr<AssumptionCache>> FunctionAC;
 
   /// Analyze a single function
   void analyzeFunction(Function &F);

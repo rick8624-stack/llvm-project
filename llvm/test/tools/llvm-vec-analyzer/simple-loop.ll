@@ -1,4 +1,4 @@
-; RUN: llvm-vec-analyzer %s -output-dir %t -vlen 128 -lmul 1 -chinese | FileCheck %s
+; RUN: llvm-vec-analyzer %s -output-dir %t -vlen 128 -lmul 1 -verbose | FileCheck %s
 ; RUN: cat %t/analysis_report_en.txt | FileCheck %s --check-prefix=ENGLISH
 ; RUN: cat %t/analysis_report_zh.txt | FileCheck %s --check-prefix=CHINESE
 ; RUN: cat %t/analysis_report.json | FileCheck %s --check-prefix=JSON
